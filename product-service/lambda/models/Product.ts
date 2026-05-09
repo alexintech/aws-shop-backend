@@ -5,6 +5,11 @@ export interface Product {
   price: number;
 }
 
+export interface Stock {
+  product_id: string;
+  count: number;
+}
+
 export interface AvailableProduct extends Product {
   count: number;
 }
