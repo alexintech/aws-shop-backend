@@ -43,19 +43,28 @@ export class ProductServiceStack extends cdk.Stack {
       handler: "getProductsById",
       ...nodeJsFunctionProps,
     });
+    
+    const createProduct = new NodejsFunction(this, "createProduct", {
+      entry: "lambda/createProduct.ts",
+      handler: "createProduct",
+      ...nodeJsFunctionProps,
+    });
 
     // Grant the Lambda function read access to the DynamoDB table
     productsTable.grantReadData(getProductsList);
     productsTable.grantReadData(getProductsById);
+    productsTable.grantReadWriteData(createProduct);
     stocksTable.grantReadData(getProductsList);
     stocksTable.grantReadData(getProductsById);
+    stocksTable.grantReadWriteData(createProduct);
 
     const productsApi = new RestApi(this, "ProductsApi");
     const products = productsApi.root.addResource("products");
     products.addMethod("GET", new LambdaIntegration(getProductsList));
+    products.addMethod("POST", new LambdaIntegration(createProduct));
     products.addCorsPreflight({
       allowOrigins: Cors.ALL_ORIGINS,
-      allowMethods: ['GET', 'OPTIONS'],
+      allowMethods: ['GET', 'POST', 'OPTIONS'],
     })
     
     const productsById = products.addResource("{id}");

@@ -1,4 +1,3 @@
-
 openapi: 3.2.0
 info:
   title: Swagger AWS Shop - OpenAPI 3.2
@@ -40,6 +39,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+    post:
+      tags:
+        - product
+      summary: Add a new product to the shop.
+      description: Add a new product to the shop.
+      operationId: createProduct
+      requestBody:
+        description: Create a new Product in the shop
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+        required: true
+      responses:
+        '201':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          description: Invalid input
+        '422':
+          description: Validation exception
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /products/{productId}:
     get:
       tags:
@@ -61,6 +90,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Product'
+        '400':
+          description: Invalid ID supplied
         '404':
           description: Product not found
         default:

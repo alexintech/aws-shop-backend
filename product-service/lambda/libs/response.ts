@@ -2,6 +2,10 @@ export const success = (body: any) => {
   return buildResponse(200, body);
 };
 
+export const created = (body: any = {}) => {
+  return buildResponse(201, body);
+};
+
 export const bad = (body: any) => {
   return buildResponse(400, body);
 };
