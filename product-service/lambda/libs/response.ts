@@ -2,6 +2,14 @@ export const success = (body: any) => {
   return buildResponse(200, body);
 };
 
+export const bad = (body: any) => {
+  return buildResponse(400, body);
+};
+
+export const notfound = (body: any) => {
+  return buildResponse(404, body);
+};
+
 export const failure = (body: any) => {
   return buildResponse(500, body);
 };
