@@ -18,7 +18,7 @@ export const importFileParser: S3Handler = async (event) => {
     await new Promise<void>((resolve, reject) => {
       (Body as Readable)
         .pipe(csvParser())
-        .on("data", (row) => console.log("Parsed record:", JSON.stringify(row)))
+        .on("data", (row: Record<string, string>) => console.log("Parsed record:", JSON.stringify(row)))
         .on("end", resolve)
         .on("error", reject);
     });
