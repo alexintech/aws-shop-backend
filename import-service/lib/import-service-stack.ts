@@ -1,5 +1,8 @@
-import * as s3 from "aws-cdk-lib/aws-s3";
 import * as cdk from 'aws-cdk-lib/core';
+import { Bucket, HttpMethods } from "aws-cdk-lib/aws-s3";
+import { Runtime } from "aws-cdk-lib/aws-lambda";
+import { NodejsFunction, NodejsFunctionProps } from "aws-cdk-lib/aws-lambda-nodejs";
+import { RestApi, LambdaIntegration, Cors } from "aws-cdk-lib/aws-apigateway";
 import { Construct } from 'constructs';
 
 export class ImportServiceStack extends cdk.Stack {
@@ -7,6 +10,42 @@ export class ImportServiceStack extends cdk.Stack {
     super(scope, id, props);
 
     // S3 bucket
-    const importBucket = new s3.Bucket(this, "import-bucket");
+    const importBucket = new Bucket(this, "import-bucket", {
+      cors: [
+        {
+          allowedMethods: [HttpMethods.PUT],
+          allowedOrigins: ["*"],
+          allowedHeaders: ["*"],
+        },
+      ],
+    });
+
+    const nodeJsFunctionProps: NodejsFunctionProps = {
+      environment: {
+        IMPORT_BUCKET_NAME: importBucket.bucketName,
+      },
+      runtime: Runtime.NODEJS_22_X,
+    }
+
+    const importProductsFile = new NodejsFunction(this, "importProductsFile", {
+      entry: "lambda/importProductsFile.ts",
+      handler: "importProductsFile",
+      ...nodeJsFunctionProps,
+    });
+
+    const importApi = new RestApi(this, "ImportApi", {
+      defaultCorsPreflightOptions: {
+        allowOrigins: Cors.ALL_ORIGINS,
+        allowMethods: ['GET', 'OPTIONS'],
+      }
+    });
+    const importResource = importApi.root.addResource("import");
+    importResource.addMethod("GET", new LambdaIntegration(importProductsFile), {
+      requestParameters: {
+        "method.request.querystring.name": true,
+      },
+    });
+
+    importBucket.grantPut(importProductsFile);
   }
 }
