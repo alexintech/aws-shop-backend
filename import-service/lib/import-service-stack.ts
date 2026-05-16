@@ -3,6 +3,8 @@ import { Bucket, HttpMethods } from "aws-cdk-lib/aws-s3";
 import { Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction, NodejsFunctionProps } from "aws-cdk-lib/aws-lambda-nodejs";
 import { RestApi, LambdaIntegration, Cors } from "aws-cdk-lib/aws-apigateway";
+import { S3EventSource } from "aws-cdk-lib/aws-lambda-event-sources";
+import { EventType } from "aws-cdk-lib/aws-s3";
 import { Construct } from 'constructs';
 
 export class ImportServiceStack extends cdk.Stack {
@@ -47,5 +49,23 @@ export class ImportServiceStack extends cdk.Stack {
     });
 
     importBucket.grantPut(importProductsFile);
+
+    
+    const importFileParser = new NodejsFunction(this, "importFileParser", {
+      entry: "lambda/importFileParser.ts",
+      handler: "importFileParser",
+      ...nodeJsFunctionProps,
+    });
+
+    importBucket.grantReadWrite(importFileParser);
+
+    importFileParser.addEventSource(
+      new S3EventSource(importBucket, {
+        events: [EventType.OBJECT_CREATED],
+        filters: [
+          { prefix: "uploaded/" }
+        ],
+      })
+    );
   }
 }
