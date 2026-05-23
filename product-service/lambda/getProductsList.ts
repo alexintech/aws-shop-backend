@@ -24,7 +24,7 @@ export const getProductsList: APIGatewayProxyHandler = async (event) => {
 
     const result: AvailableProduct[] = products.map(product => ({
       ...product,
-      count: stocksByProductId[product.id]?.count ?? 0,
+      count: (product.id ? stocksByProductId[product.id]?.count : undefined) ?? 0,
     }))
     
     return success(result);
