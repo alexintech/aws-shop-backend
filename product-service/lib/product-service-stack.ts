@@ -3,6 +3,8 @@ import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction, NodejsFunctionProps } from "aws-cdk-lib/aws-lambda-nodejs";
 import { RestApi, LambdaIntegration, Cors } from "aws-cdk-lib/aws-apigateway";
+import { Queue } from "aws-cdk-lib/aws-sqs";
+import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { Construct } from 'constructs';
 
 export class ProductServiceStack extends cdk.Stack {
@@ -23,6 +25,11 @@ export class ProductServiceStack extends cdk.Stack {
         type: AttributeType.STRING
       },
       tableName: 'stocks',
+    });
+
+    // SQS queue
+    const catalogItemsQueue = new Queue(this, 'catalogItemsQueue', {
+      queueName: 'catalogItemsQueue',
     });
     
     const nodeJsFunctionProps: NodejsFunctionProps = {
@@ -50,13 +57,30 @@ export class ProductServiceStack extends cdk.Stack {
       ...nodeJsFunctionProps,
     });
 
+    const catalogBatchProcess = new NodejsFunction(this, 'catalogBatchProcess', {
+      entry: 'lambda/catalogBatchProcess.ts',
+      handler: 'catalogBatchProcess',
+      ...nodeJsFunctionProps,
+    });
+
+    catalogBatchProcess.addEventSource(new SqsEventSource(catalogItemsQueue, {
+      batchSize: 5,
+    }));
+
     // Grant the Lambda function read access to the DynamoDB table
     productsTable.grantReadData(getProductsList);
     productsTable.grantReadData(getProductsById);
     productsTable.grantReadWriteData(createProduct);
+    productsTable.grantWriteData(catalogBatchProcess);
     stocksTable.grantReadData(getProductsList);
     stocksTable.grantReadData(getProductsById);
     stocksTable.grantReadWriteData(createProduct);
+    stocksTable.grantWriteData(catalogBatchProcess);
+
+    new cdk.CfnOutput(this, 'CatalogItemsQueueArn', {
+      value: catalogItemsQueue.queueArn,
+      exportName: 'CatalogItemsQueueArn',
+    });
 
     const productsApi = new RestApi(this, "ProductsApi");
     const products = productsApi.root.addResource("products");
