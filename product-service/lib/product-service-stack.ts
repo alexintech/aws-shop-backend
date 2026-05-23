@@ -5,6 +5,8 @@ import { NodejsFunction, NodejsFunctionProps } from "aws-cdk-lib/aws-lambda-node
 import { RestApi, LambdaIntegration, Cors } from "aws-cdk-lib/aws-apigateway";
 import { Queue } from "aws-cdk-lib/aws-sqs";
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
+import { Topic, SubscriptionFilter } from "aws-cdk-lib/aws-sns";
+import { EmailSubscription } from "aws-cdk-lib/aws-sns-subscriptions";
 import { Construct } from 'constructs';
 
 export class ProductServiceStack extends cdk.Stack {
@@ -31,6 +33,25 @@ export class ProductServiceStack extends cdk.Stack {
     const catalogItemsQueue = new Queue(this, 'catalogItemsQueue', {
       queueName: 'catalogItemsQueue',
     });
+
+    // SNS topic
+    const createProductTopic = new Topic(this, 'createProductTopic', {
+      topicName: 'createProductTopic',
+    });
+
+    // Primary email recieves all notifications
+    const subscriptionEmail = process.env.SNS_PRIMARY_EMAIL;
+    if (!subscriptionEmail) throw new Error('SNS_PRIMARY_EMAIL env var is required');
+    createProductTopic.addSubscription(new EmailSubscription(subscriptionEmail));
+
+    // Second email recieves only expensive product notifications
+    const secondaryEmail = process.env.SNS_SECONDARY_EMAIL;
+    if (!secondaryEmail) throw new Error('SNS_SECONDARY_EMAIL env var is required');
+    createProductTopic.addSubscription(new EmailSubscription(secondaryEmail, {
+      filterPolicy: {
+        price: SubscriptionFilter.numericFilter({ greaterThanOrEqualTo: 500 }),
+      },
+    }));
     
     const nodeJsFunctionProps: NodejsFunctionProps = {
       environment: {
@@ -61,6 +82,10 @@ export class ProductServiceStack extends cdk.Stack {
       entry: 'lambda/catalogBatchProcess.ts',
       handler: 'catalogBatchProcess',
       ...nodeJsFunctionProps,
+      environment: {
+        ...nodeJsFunctionProps.environment,
+        CREATE_PRODUCT_TOPIC_ARN: createProductTopic.topicArn,
+      },
     });
 
     catalogBatchProcess.addEventSource(new SqsEventSource(catalogItemsQueue, {
@@ -76,6 +101,7 @@ export class ProductServiceStack extends cdk.Stack {
     stocksTable.grantReadData(getProductsById);
     stocksTable.grantReadWriteData(createProduct);
     stocksTable.grantWriteData(catalogBatchProcess);
+    createProductTopic.grantPublish(catalogBatchProcess);
 
     new cdk.CfnOutput(this, 'CatalogItemsQueueArn', {
       value: catalogItemsQueue.queueArn,
