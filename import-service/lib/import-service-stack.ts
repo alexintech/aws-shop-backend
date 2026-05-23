@@ -5,6 +5,7 @@ import { NodejsFunction, NodejsFunctionProps } from "aws-cdk-lib/aws-lambda-node
 import { RestApi, LambdaIntegration, Cors } from "aws-cdk-lib/aws-apigateway";
 import { S3EventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { EventType } from "aws-cdk-lib/aws-s3";
+import { Queue } from "aws-cdk-lib/aws-sqs";
 import { Construct } from 'constructs';
 
 export class ImportServiceStack extends cdk.Stack {
@@ -51,13 +52,24 @@ export class ImportServiceStack extends cdk.Stack {
     importBucket.grantPut(importProductsFile);
 
     
+    const catalogItemsQueue = Queue.fromQueueArn(
+      this,
+      "CatalogItemsQueue",
+      cdk.Fn.importValue("CatalogItemsQueueArn")
+    );
+
     const importFileParser = new NodejsFunction(this, "importFileParser", {
       entry: "lambda/importFileParser.ts",
       handler: "importFileParser",
       ...nodeJsFunctionProps,
+      environment: {
+        ...nodeJsFunctionProps.environment,
+        CATALOG_ITEMS_QUEUE_URL: catalogItemsQueue.queueUrl,
+      },
     });
 
     importBucket.grantReadWrite(importFileParser);
+    catalogItemsQueue.grantSendMessages(importFileParser);
 
     importFileParser.addEventSource(
       new S3EventSource(importBucket, {

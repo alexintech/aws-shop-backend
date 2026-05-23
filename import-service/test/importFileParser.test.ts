@@ -1,4 +1,5 @@
 process.env.IMPORT_BUCKET_NAME = "test-bucket";
+process.env.CATALOG_ITEMS_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/123456789/catalogItemsQueue";
 
 import { S3Event } from "aws-lambda";
 import { Readable } from "stream";
@@ -15,11 +16,26 @@ jest.mock("@aws-sdk/client-s3", () => {
   };
 });
 
+jest.mock("@aws-sdk/client-sqs", () => {
+  const send = jest.fn();
+  return {
+    __mockSqsSend: send,
+    SQSClient: jest.fn().mockImplementation(() => ({ send })),
+    SendMessageCommand: jest.fn().mockImplementation((input) => ({ input })),
+  };
+});
+
 const { __mockSend: mockSend, CopyObjectCommand, DeleteObjectCommand } =
   jest.requireMock("@aws-sdk/client-s3") as {
     __mockSend: jest.Mock;
     CopyObjectCommand: jest.Mock;
     DeleteObjectCommand: jest.Mock;
+  };
+
+const { __mockSqsSend: mockSqsSend, SendMessageCommand } =
+  jest.requireMock("@aws-sdk/client-sqs") as {
+    __mockSqsSend: jest.Mock;
+    SendMessageCommand: jest.Mock;
   };
 
 const makeEvent = (bucket: string, key: string): S3Event =>
@@ -32,22 +48,26 @@ const makeReadable = (content: string): Readable => Readable.from([content]);
 describe("importFileParser", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSqsSend.mockResolvedValue({});
   });
 
-  it("parses CSV records and logs each row", async () => {
-    const csv = "name,price\nProduct A,10\nProduct B,20";
+  it("sends each CSV row to SQS", async () => {
+    const csv = "title,description,price,count\nProduct A,desc,10,5\nProduct B,other,20,3";
     mockSend.mockResolvedValueOnce({ Body: makeReadable(csv) });
     mockSend.mockResolvedValueOnce({});
     mockSend.mockResolvedValueOnce({});
 
-    const consoleSpy = jest.spyOn(console, "log").mockImplementation(() => {});
-
     await importFileParser(makeEvent("test-bucket", "uploaded/products.csv"), {} as any, {} as any);
 
-    expect(consoleSpy).toHaveBeenCalledWith("Parsed record:", JSON.stringify({ name: "Product A", price: "10" }));
-    expect(consoleSpy).toHaveBeenCalledWith("Parsed record:", JSON.stringify({ name: "Product B", price: "20" }));
-
-    consoleSpy.mockRestore();
+    expect(mockSqsSend).toHaveBeenCalledTimes(2);
+    expect(SendMessageCommand).toHaveBeenCalledWith({
+      QueueUrl: "https://sqs.us-east-1.amazonaws.com/123456789/catalogItemsQueue",
+      MessageBody: JSON.stringify({ title: "Product A", description: "desc", price: 10, count: 5 }),
+    });
+    expect(SendMessageCommand).toHaveBeenCalledWith({
+      QueueUrl: "https://sqs.us-east-1.amazonaws.com/123456789/catalogItemsQueue",
+      MessageBody: JSON.stringify({ title: "Product B", description: "other", price: 20, count: 3 }),
+    });
   });
 
   it("moves the file to parsed/ folder", async () => {
@@ -62,7 +82,7 @@ describe("importFileParser", () => {
       CopySource: "test-bucket/uploaded/products.csv",
       Key: "parsed/products.csv",
     });
-    
+
     expect(DeleteObjectCommand).toHaveBeenCalledWith({
       Bucket: "test-bucket",
       Key: "uploaded/products.csv",
@@ -75,5 +95,15 @@ describe("importFileParser", () => {
     await expect(
       importFileParser(makeEvent("test-bucket", "uploaded/products.csv"), {} as any, {} as any)
     ).rejects.toThrow("S3 read error");
+  });
+
+  it("throws when SendMessageCommand fails", async () => {
+    const csv = "title\nProduct A";
+    mockSend.mockResolvedValueOnce({ Body: makeReadable(csv) });
+    mockSqsSend.mockRejectedValueOnce(new Error("SQS send error"));
+
+    await expect(
+      importFileParser(makeEvent("test-bucket", "uploaded/products.csv"), {} as any, {} as any)
+    ).rejects.toThrow("SQS send error");
   });
 });
