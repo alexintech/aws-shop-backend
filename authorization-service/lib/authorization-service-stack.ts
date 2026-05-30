@@ -15,11 +15,16 @@ export class AuthorizationServiceStack extends cdk.Stack {
       ? dotenv.parse(fs.readFileSync(envFile))
       : {};
 
-    new NodejsFunction(this, 'basicAuthorizer', {
+    const basicAuthorizerFn = new NodejsFunction(this, 'basicAuthorizer', {
       entry: 'lambda/basicAuthorizer.ts',
       handler: 'basicAuthorizer',
       runtime: Runtime.NODEJS_22_X,
       environment: envVars,
+    });
+
+    new cdk.CfnOutput(this, 'BasicAuthorizerArn', {
+      value: basicAuthorizerFn.functionArn,
+      exportName: 'BasicAuthorizerArn',
     });
   }
 }
