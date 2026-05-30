@@ -1,9 +1,13 @@
 import { CopyObjectCommand, DeleteObjectCommand, GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { S3Handler } from "aws-lambda";
 import { Readable } from "stream";
 import csvParser from "csv-parser";
 
+const CATALOG_ITEMS_QUEUE_URL = process.env.CATALOG_ITEMS_QUEUE_URL!;
+
 const s3Client = new S3Client();
+const sqsClient = new SQSClient();
 
 export const importFileParser: S3Handler = async (event) => {
   for (const record of event.Records) {
@@ -16,10 +20,30 @@ export const importFileParser: S3Handler = async (event) => {
     );
 
     await new Promise<void>((resolve, reject) => {
+      const rows: Record<string, string | number>[] = [];
+
       (Body as Readable)
         .pipe(csvParser())
-        .on("data", (row: Record<string, string>) => console.log("Parsed record:", JSON.stringify(row)))
-        .on("end", resolve)
+        .on("data", (row: Record<string, string>) => rows.push({
+          ...row,
+          price: parseFloat(row.price),
+          count: parseInt(row.count),
+        }))
+        .on("end", async () => {
+          try {
+            for (const row of rows) {
+              await sqsClient.send(
+                new SendMessageCommand({
+                  QueueUrl: CATALOG_ITEMS_QUEUE_URL,
+                  MessageBody: JSON.stringify(row),
+                })
+              );
+            }
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        })
         .on("error", reject);
     });
 
