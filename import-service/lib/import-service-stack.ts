@@ -1,8 +1,9 @@
 import * as cdk from 'aws-cdk-lib/core';
+import * as iam from "aws-cdk-lib/aws-iam";
 import { Bucket, HttpMethods } from "aws-cdk-lib/aws-s3";
-import { Runtime } from "aws-cdk-lib/aws-lambda";
+import { Runtime, Function } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction, NodejsFunctionProps } from "aws-cdk-lib/aws-lambda-nodejs";
-import { RestApi, LambdaIntegration, Cors } from "aws-cdk-lib/aws-apigateway";
+import { RestApi, LambdaIntegration, Cors, TokenAuthorizer, GatewayResponse, ResponseType } from "aws-cdk-lib/aws-apigateway";
 import { S3EventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { EventType } from "aws-cdk-lib/aws-s3";
 import { Queue } from "aws-cdk-lib/aws-sqs";
@@ -36,17 +37,44 @@ export class ImportServiceStack extends cdk.Stack {
       ...nodeJsFunctionProps,
     });
 
+    const basicAuthorizerFn = Function.fromFunctionAttributes(this, 'BasicAuthorizerFn', {
+      functionArn: cdk.Fn.importValue('BasicAuthorizerArn'),
+      sameEnvironment: true,
+    });
+
+    basicAuthorizerFn.grantInvoke(new iam.ServicePrincipal('apigateway.amazonaws.com'));
+
+    const authorizer = new TokenAuthorizer(this, 'BasicAuthorizer', {
+      handler: basicAuthorizerFn,
+    });
+
     const importApi = new RestApi(this, "ImportApi", {
       defaultCorsPreflightOptions: {
         allowOrigins: Cors.ALL_ORIGINS,
         allowMethods: ['GET', 'OPTIONS'],
       }
     });
+    new GatewayResponse(this, 'UnauthorizedResponse', {
+      restApi: importApi,
+      type: ResponseType.UNAUTHORIZED,
+      responseHeaders: {
+        'Access-Control-Allow-Origin': "'*'",
+      },
+    });
+    new GatewayResponse(this, 'AccessDeniedResponse', {
+      restApi: importApi,
+      type: ResponseType.ACCESS_DENIED,
+      responseHeaders: {
+        'Access-Control-Allow-Origin': "'*'",
+      },
+    });
+
     const importResource = importApi.root.addResource("import");
     importResource.addMethod("GET", new LambdaIntegration(importProductsFile), {
       requestParameters: {
         "method.request.querystring.name": true,
       },
+      authorizer,
     });
 
     importBucket.grantPut(importProductsFile);
